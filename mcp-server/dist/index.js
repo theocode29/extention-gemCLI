@@ -42,6 +42,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             { name: "search_docs", description: "Recherche RAG Minecraft.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
             { name: "run_headless_test", description: "Validation bs.load:status ou Gametests.", inputSchema: { type: "object", properties: { type: { type: "string", enum: ["gametest", "bookshelf_status"] } } } },
             { name: "run_spyglass_cli", description: "Validation syntaxique stricte (Spyglass).", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+            { name: "fs_workspace_init", description: "Initialise un nouveau projet de datapack avec le template BONE:MSD.", inputSchema: { type: "object", properties: { version: { type: "string" } }, required: ["version"] } },
             { name: "fs_sync_all", description: "Synchronisation complète de l'état du projet.", inputSchema: { type: "object" } },
             { name: "reset_circuit_breaker", description: "Reset global du disjoncteur.", inputSchema: { type: "object" } }
         ],
@@ -151,6 +152,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "run_spyglass_cli": {
                 const result = await spyglassRunner.run(args?.path);
                 return { isError: result.status !== "PASS", content: [{ type: "text", text: result.message + (result.errors.length > 0 ? "\n" + JSON.stringify(result.errors, null, 2) : "") }] };
+            }
+            case "fs_workspace_init": {
+                const initRes = await boneEngine.initTemplate();
+                await stateManager.syncAll();
+                return { content: [{ type: "text", text: initRes }] };
             }
             case "fs_sync_all": {
                 await stateManager.syncAll();
