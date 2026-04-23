@@ -137,7 +137,8 @@ export class DatapackInitEngine {
         }
         else {
             packSection.pack_format = spec.packFormat;
-            packSection.supported_formats = [spec.packFormat];
+            // 1.21.x strict parser requires [min,max] range form for formats <= 81
+            packSection.supported_formats = [spec.packFormat, spec.packFormat];
         }
         const payload = {
             pack: packSection,

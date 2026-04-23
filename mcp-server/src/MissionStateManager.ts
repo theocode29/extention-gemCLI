@@ -11,9 +11,12 @@ export type ExecutionPhase =
 
 export type MissionStatus =
   | "draft"
+  | "research_blocked"
   | "awaiting_go"
+  | "debate_in_progress"
   | "in_progress"
   | "waiting_human"
+  | "validation_blocked_headless"
   | "blocked"
   | "completed"
   | "conditional_delivery";
@@ -28,6 +31,57 @@ export interface Checkpoint {
   key: string;
   value: string;
   updatedAt: string;
+}
+
+export interface ResearchSource {
+  id: string;
+  kind: "library_doc" | "minecraft_runtime_doc" | "internal_doc";
+  title: string;
+  urlOrPath: string;
+  summary: string;
+}
+
+export interface ResearchBundle {
+  sources: ResearchSource[];
+  constraints: string[];
+  chosenModules: string[];
+  rejectedModules: string[];
+  useCaseClass: string;
+  evidenceMap: Record<string, string[]>;
+  moduleCandidates: string[];
+  physicsModel: string;
+  validated: boolean;
+  lastUpdatedAt: string;
+}
+
+export interface DebatePosition {
+  agent: "planner" | "critic";
+  proposal: string;
+  risks: string[];
+  score: number;
+}
+
+export interface DebateLogEntry {
+  at: string;
+  winner: "planner" | "critic" | "hybrid";
+  kept: string[];
+  rejected: string[];
+  tradeoffs: string[];
+  riskAcceptance: string;
+  rationale: string;
+}
+
+export interface CapabilityEvidence {
+  sources: string[];
+  selectedModules: string[];
+  rejectedModules: string[];
+}
+
+export interface LoopGuardState {
+  maxSteps: number;
+  currentSteps: number;
+  repeatedSignatureCount: number;
+  lastSignature: string;
 }
 
 export interface MissionState {
@@ -46,7 +100,23 @@ export interface MissionState {
     assetsReady: boolean;
     finalApproved: boolean;
   };
+  validation: {
+    headlessRequired: boolean;
+    headlessPassed: boolean;
+    contractPassed: boolean;
+  };
+  taskClass: {
+    runtimeImpacting: boolean;
+  };
+  capabilityEvidence: Record<string, CapabilityEvidence>;
   checkpoints: Record<string, Checkpoint>;
+  research: ResearchBundle;
+  debate: {
+    planner?: DebatePosition;
+    critic?: DebatePosition;
+    decisionLog: DebateLogEntry[];
+  };
+  loopGuard: LoopGuardState;
   updatedAt: string;
   createdAt: string;
 }
@@ -87,9 +157,83 @@ export class MissionStateManager {
         assetsReady: false,
         finalApproved: false,
       },
+      validation: {
+        headlessRequired: true,
+        headlessPassed: false,
+        contractPassed: false,
+      },
+      taskClass: {
+        runtimeImpacting: true,
+      },
+      capabilityEvidence: {},
       checkpoints: {},
+      research: {
+        sources: [],
+        constraints: [],
+        chosenModules: [],
+        rejectedModules: [],
+        useCaseClass: "general",
+        evidenceMap: {},
+        moduleCandidates: [],
+        physicsModel: "",
+        validated: false,
+        lastUpdatedAt: now,
+      },
+      debate: {
+        decisionLog: [],
+      },
+      loopGuard: {
+        maxSteps: 80,
+        currentSteps: 0,
+        repeatedSignatureCount: 0,
+        lastSignature: "",
+      },
       updatedAt: now,
       createdAt: now,
+    };
+  }
+
+  private normalizeMission(data: MissionState): MissionState {
+    const now = this.nowIso();
+    const defaultResearch: ResearchBundle = {
+      sources: [],
+      constraints: [],
+      chosenModules: [],
+      rejectedModules: [],
+      useCaseClass: "general",
+      evidenceMap: {},
+      moduleCandidates: [],
+      physicsModel: "",
+      validated: false,
+      lastUpdatedAt: now,
+    };
+    return {
+      ...data,
+      gates: data.gates ?? {
+        planApproved: false,
+        assetsReady: false,
+        finalApproved: false,
+      },
+      validation: data.validation ?? {
+        headlessRequired: true,
+        headlessPassed: false,
+        contractPassed: false,
+      },
+      taskClass: data.taskClass ?? {
+        runtimeImpacting: true,
+      },
+      capabilityEvidence: data.capabilityEvidence ?? {},
+      research: {
+        ...defaultResearch,
+        ...(data.research ?? {}),
+      },
+      debate: data.debate ?? { decisionLog: [] },
+      loopGuard: data.loopGuard ?? {
+        maxSteps: 80,
+        currentSteps: 0,
+        repeatedSignatureCount: 0,
+        lastSignature: "",
+      },
     };
   }
 
@@ -101,7 +245,7 @@ export class MissionStateManager {
       return base;
     }
     try {
-      const data = (await fs.readJson(p)) as MissionState;
+      const data = this.normalizeMission((await fs.readJson(p)) as MissionState);
       return data;
     } catch {
       const base = this.buildDefaultMission();
@@ -144,7 +288,37 @@ export class MissionStateManager {
         assetsReady: false,
         finalApproved: false,
       },
+      validation: {
+        headlessRequired: true,
+        headlessPassed: false,
+        contractPassed: false,
+      },
+      taskClass: {
+        runtimeImpacting: true,
+      },
+      capabilityEvidence: {},
       checkpoints: {},
+      research: {
+        sources: [],
+        constraints: [],
+        chosenModules: [],
+        rejectedModules: [],
+        useCaseClass: "general",
+        evidenceMap: {},
+        moduleCandidates: [],
+        physicsModel: "",
+        validated: false,
+        lastUpdatedAt: now,
+      },
+      debate: {
+        decisionLog: [],
+      },
+      loopGuard: {
+        maxSteps: 80,
+        currentSteps: 0,
+        repeatedSignatureCount: 0,
+        lastSignature: "",
+      },
       updatedAt: now,
       createdAt: now,
     };
@@ -161,21 +335,17 @@ export class MissionStateManager {
     nextAction?: string;
     status?: MissionStatus;
     requiresHuman?: boolean;
+    contractPassed?: boolean;
+    headlessRequired?: boolean;
+    headlessPassed?: boolean;
+    runtimeImpacting?: boolean;
   }): Promise<MissionState> {
     const mission = await this.loadMission();
-    if (patch.objective !== undefined) {
-      mission.objective = patch.objective;
-    }
-    if (patch.assumptions !== undefined) {
-      mission.assumptions = patch.assumptions;
-    }
-    if (patch.decisions !== undefined) {
-      mission.decisions = patch.decisions;
-    }
+    if (patch.objective !== undefined) mission.objective = patch.objective;
+    if (patch.assumptions !== undefined) mission.assumptions = patch.assumptions;
+    if (patch.decisions !== undefined) mission.decisions = patch.decisions;
     if (patch.backlog !== undefined) {
-      const byId = new Map<string, ActionItem>(
-        mission.backlog.map((item) => [item.id, item])
-      );
+      const byId = new Map<string, ActionItem>(mission.backlog.map((item) => [item.id, item]));
       for (const incoming of patch.backlog) {
         const existing = byId.get(incoming.id);
         if (!existing) {
@@ -194,18 +364,77 @@ export class MissionStateManager {
       }
       mission.backlog = Array.from(byId.values());
     }
-    if (patch.blockers !== undefined) {
-      mission.blockers = patch.blockers;
+    if (patch.blockers !== undefined) mission.blockers = patch.blockers;
+    if (patch.nextAction !== undefined) mission.nextAction = patch.nextAction;
+    if (patch.status !== undefined) mission.status = patch.status;
+    if (patch.requiresHuman !== undefined) mission.requiresHuman = patch.requiresHuman;
+    if (patch.contractPassed !== undefined) mission.validation.contractPassed = patch.contractPassed;
+    if (patch.headlessRequired !== undefined) mission.validation.headlessRequired = patch.headlessRequired;
+    if (patch.headlessPassed !== undefined) mission.validation.headlessPassed = patch.headlessPassed;
+    if (patch.runtimeImpacting !== undefined) {
+      mission.taskClass.runtimeImpacting = patch.runtimeImpacting;
+      if (patch.headlessRequired === undefined) {
+        mission.validation.headlessRequired = patch.runtimeImpacting;
+      }
     }
-    if (patch.nextAction !== undefined) {
-      mission.nextAction = patch.nextAction;
-    }
-    if (patch.status !== undefined) {
-      mission.status = patch.status;
-    }
-    if (patch.requiresHuman !== undefined) {
-      mission.requiresHuman = patch.requiresHuman;
-    }
+    await this.saveMission(mission);
+    return mission;
+  }
+
+  async updateResearch(bundle: {
+    sources?: ResearchSource[];
+    constraints?: string[];
+    chosenModules?: string[];
+    rejectedModules?: string[];
+    useCaseClass?: string;
+    evidenceMap?: Record<string, string[]>;
+    moduleCandidates?: string[];
+    physicsModel?: string;
+    validated?: boolean;
+  }): Promise<MissionState> {
+    const mission = await this.loadMission();
+    if (bundle.sources !== undefined) mission.research.sources = bundle.sources;
+    if (bundle.constraints !== undefined) mission.research.constraints = bundle.constraints;
+    if (bundle.chosenModules !== undefined) mission.research.chosenModules = bundle.chosenModules;
+    if (bundle.rejectedModules !== undefined) mission.research.rejectedModules = bundle.rejectedModules;
+    if (bundle.useCaseClass !== undefined) mission.research.useCaseClass = bundle.useCaseClass;
+    if (bundle.evidenceMap !== undefined) mission.research.evidenceMap = bundle.evidenceMap;
+    if (bundle.moduleCandidates !== undefined) mission.research.moduleCandidates = bundle.moduleCandidates;
+    if (bundle.physicsModel !== undefined) mission.research.physicsModel = bundle.physicsModel;
+    if (bundle.validated !== undefined) mission.research.validated = bundle.validated;
+    mission.research.lastUpdatedAt = this.nowIso();
+    await this.saveMission(mission);
+    return mission;
+  }
+
+  async setDebatePosition(pos: DebatePosition): Promise<MissionState> {
+    const mission = await this.loadMission();
+    if (pos.agent === "planner") mission.debate.planner = pos;
+    if (pos.agent === "critic") mission.debate.critic = pos;
+    mission.status = "debate_in_progress";
+    await this.saveMission(mission);
+    return mission;
+  }
+
+  async resolveDebate(result: {
+    winner: "planner" | "critic" | "hybrid";
+    kept: string[];
+    rejected: string[];
+    tradeoffs: string[];
+    riskAcceptance: string;
+    rationale: string;
+  }): Promise<MissionState> {
+    const mission = await this.loadMission();
+    mission.debate.decisionLog.push({
+      at: this.nowIso(),
+      winner: result.winner,
+      kept: result.kept,
+      rejected: result.rejected,
+      tradeoffs: result.tradeoffs,
+      riskAcceptance: result.riskAcceptance,
+      rationale: result.rationale,
+    });
+    mission.status = "awaiting_go";
     await this.saveMission(mission);
     return mission;
   }
@@ -223,12 +452,8 @@ export class MissionStateManager {
     } else if (mission.status === "awaiting_go" && input.phase !== "phase2_plan") {
       mission.status = "in_progress";
     }
-    if (input.nextAction !== undefined) {
-      mission.nextAction = input.nextAction;
-    }
-    if (input.requiresHuman !== undefined) {
-      mission.requiresHuman = input.requiresHuman;
-    }
+    if (input.nextAction !== undefined) mission.nextAction = input.nextAction;
+    if (input.requiresHuman !== undefined) mission.requiresHuman = input.requiresHuman;
     await this.saveMission(mission);
     return mission;
   }
@@ -259,24 +484,67 @@ export class MissionStateManager {
     return mission;
   }
 
+  async registerLoopSignature(signature: string): Promise<MissionState> {
+    const mission = await this.loadMission();
+    mission.loopGuard.currentSteps += 1;
+    if (mission.loopGuard.lastSignature === signature) {
+      mission.loopGuard.repeatedSignatureCount += 1;
+    } else {
+      mission.loopGuard.lastSignature = signature;
+      mission.loopGuard.repeatedSignatureCount = 0;
+    }
+    await this.saveMission(mission);
+    return mission;
+  }
+
+  async setCapabilityEvidence(
+    capability: string,
+    evidence: CapabilityEvidence
+  ): Promise<MissionState> {
+    const mission = await this.loadMission();
+    mission.capabilityEvidence[capability] = evidence;
+    await this.saveMission(mission);
+    return mission;
+  }
+
   toMarkdown(mission: MissionState): string {
     const backlogLines =
       mission.backlog.length === 0
         ? "- (vide)"
         : mission.backlog.map((item) => `- [${item.done ? "x" : " "}] ${item.id}: ${item.title}`);
-    const blockers =
-      mission.blockers.length === 0 ? "- Aucun" : mission.blockers.map((b) => `- ${b}`);
+    const blockers = mission.blockers.length === 0 ? "- Aucun" : mission.blockers.map((b) => `- ${b}`);
     const assumptions =
-      mission.assumptions.length === 0
-        ? "- Aucune"
-        : mission.assumptions.map((a) => `- ${a}`);
-    const decisions =
-      mission.decisions.length === 0 ? "- Aucune" : mission.decisions.map((d) => `- ${d}`);
+      mission.assumptions.length === 0 ? "- Aucune" : mission.assumptions.map((a) => `- ${a}`);
+    const decisions = mission.decisions.length === 0 ? "- Aucune" : mission.decisions.map((d) => `- ${d}`);
     const checkpoints = Object.values(mission.checkpoints);
     const checkpointLines =
       checkpoints.length === 0
         ? "- Aucun"
         : checkpoints.map((cp) => `- ${cp.key}: ${cp.value} (${cp.updatedAt})`);
+    const capabilityEvidenceLines =
+      Object.keys(mission.capabilityEvidence).length === 0
+        ? "- Aucune"
+        : Object.entries(mission.capabilityEvidence).map(
+            ([cap, ev]) =>
+              `- ${cap}: sources=[${ev.sources.join(", ")}], selected=[${ev.selectedModules.join(
+                ", "
+              )}], rejected=[${ev.rejectedModules.join(", ")}]`
+          );
+    const researchSources =
+      mission.research.sources.length === 0
+        ? "- Aucune"
+        : mission.research.sources.map(
+            (s) => `- [${s.kind}] ${s.title} -> ${s.urlOrPath}\n  ${s.summary}`
+          );
+    const debateLines =
+      mission.debate.decisionLog.length === 0
+        ? "- Aucun arbitrage"
+        : mission.debate.decisionLog.map(
+            (d) =>
+              `- ${d.at} winner=${d.winner}; kept=[${d.kept.join(", ")}]; rejected=[${d.rejected.join(
+                ", "
+              )}]; tradeoffs=[${d.tradeoffs.join(", ")}]; risk_acceptance=${d.riskAcceptance}`
+          );
 
     return [
       "# Gemini Mission Memory",
@@ -298,6 +566,23 @@ export class MissionStateManager {
       `- assetsReady: ${mission.gates.assetsReady}`,
       `- finalApproved: ${mission.gates.finalApproved}`,
       "",
+      "## Validation",
+      `- headlessRequired: ${mission.validation.headlessRequired}`,
+      `- headlessPassed: ${mission.validation.headlessPassed}`,
+      `- contractPassed: ${mission.validation.contractPassed}`,
+      `- runtimeImpacting: ${mission.taskClass.runtimeImpacting}`,
+      "",
+      "## Research",
+      `- validated: ${mission.research.validated}`,
+      `- useCaseClass: ${mission.research.useCaseClass}`,
+      ...researchSources,
+      "",
+      "## Capability Evidence",
+      ...capabilityEvidenceLines,
+      "",
+      "## Debate",
+      ...debateLines,
+      "",
       "## Assumptions",
       ...assumptions,
       "",
@@ -309,6 +594,10 @@ export class MissionStateManager {
       "",
       "## Blockers",
       ...blockers,
+      "",
+      "## Loop Guard",
+      `- steps: ${mission.loopGuard.currentSteps}/${mission.loopGuard.maxSteps}`,
+      `- repeatedSignatureCount: ${mission.loopGuard.repeatedSignatureCount}`,
       "",
       "## Checkpoints",
       ...checkpointLines,

@@ -31,7 +31,7 @@ gemini extensions link .
 
 Les commandes sont maintenant au format officiel `prompt`/`description` et utilisent le namespace canonique `/dp:*`.
 La commande `/dp:use-dp` est self-contained (sans dependance runtime a `@{...}`).
-`/dp:use-dp` est l'entree agentique principale (modes implicites `plan`, `execute`, `resume`).
+`/dp:use-dp` est l'entree agentique principale (modes implicites `plan`, `execute`, `resume`) et applique un pipeline v3 research-first.
 
 - `/dp:init version=<x.y.z> namespace=<id> [profile=minimal|worldgen|tests|full]`
 - `/dp:ingest`
@@ -61,16 +61,39 @@ Exemple de routage intelligent:
 
 Prompts MCP secondaires exposés côté serveur : `mcp-dp-*` (listables via `/mcp desc`).
 
-## 🤖 Mode Agentique v2 (HITL)
+## 🤖 Mode Agentique v4 (HITL + Capability-First)
 
 - Flux standard: idee -> plan propose -> GO humain -> execution auto -> gate assets -> gate livraison.
+- Fondations v3 verrouillees:
+1. research gate obligatoire (3 sources: doc lib + runtime Minecraft + doc interne),
+2. duel contradictoire Planner vs Critic avec decision log,
+3. gate technique contract obligatoire avant `completed`.
+- Addendum v4:
+1. moteur capability-first transverse (pas de routage benchmark-spécifique),
+2. catalogue capabilities/modules basé manifest Bookshelf + cache `.docs`,
+3. policy headless conditionnelle à `runtimeImpacting`.
 - 3 gates humains obligatoires:
 1. validation du plan (GO),
 2. confirmation assets externes,
 3. validation finale livraison.
+- Etats techniques supplementaires:
+  - `research_blocked`,
+  - `debate_in_progress`,
+  - `validation_blocked_headless`.
 - Memoire persistante:
   - `.gemini-project.json` pour l'etat technique.
   - `.gemini-mission.json` + `.gemini-mission.md` pour la mission en cours (phase, statut, backlog, next_action).
+
+### Outils MCP agentiques v3
+
+- `agent_research_collect` / `agent_research_validate`
+- `agent_plan_duel_start` / `agent_plan_duel_resolve`
+- `agent_library_route`
+- `agent_capability_catalog_refresh`
+- `agent_capability_catalog_get`
+- `datapack_contract_validate`
+- `datapack_physics_profile_apply`
+- `agent_loop_guard_check`
 
 ## 🔧 Dépannage MCP
 
