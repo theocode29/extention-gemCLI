@@ -82,10 +82,9 @@ export class ProjectStateManager {
     // Détection d'impacts BONE spécifiques
     const boneImpacts: string[] = [];
     [...report.added, ...report.modified].forEach(file => {
-        if (file.includes("loot_table/blocks/")) {
+        if (file.includes("loot_table/blocks/") || file.includes("loot_tables/blocks/")) {
             const parts = file.split("/");
-            // On essaie de deviner le namespace et le nom du bloc
-            // data/namespace/loot_table/blocks/block_name/give.json
+            // data/namespace/loot_table(s)/blocks/block_name/give.json
             if (parts.length >= 6) {
                 const namespace = parts[1];
                 const blockName = parts[4];

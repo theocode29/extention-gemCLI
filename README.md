@@ -30,8 +30,10 @@ gemini extensions link .
 ## 🧭 Commandes Extension (Gemini CLI v1)
 
 Les commandes sont maintenant au format officiel `prompt`/`description` et utilisent le namespace canonique `/dp:*`.
+La commande `/dp:use-dp` est self-contained (sans dependance runtime a `@{...}`).
+`/dp:use-dp` est l'entree agentique principale (modes implicites `plan`, `execute`, `resume`).
 
-- `/dp:init <version>`
+- `/dp:init version=<x.y.z> namespace=<id> [profile=minimal|worldgen|tests|full]`
 - `/dp:ingest`
 - `/dp:lint <path>`
 - `/dp:install-bookshelf <module_name>`
@@ -42,6 +44,7 @@ Les commandes sont maintenant au format officiel `prompt`/`description` et utili
 - `/dp:assets-verify`
 - `/dp:read <path>`
 - `/dp:write <payload_json>`
+- `/dp:use-dp <demande_libre>`
 - `/dp:mods`
 - `/dp:test [gametest|bookshelf_status]`
 - `/dp:search <query>`
@@ -50,7 +53,34 @@ Les commandes sont maintenant au format officiel `prompt`/`description` et utili
 - `/dp:breaker-reset`
 - `/dp:doctor`
 
+Exemple de routage intelligent:
+
+- `/dp:use-dp installe bs.random` -> recommande `/dp:install-bookshelf random`
+- `/dp:use-dp verifie les erreurs de syntaxe sur data/` -> recommande `/dp:spyglass data/`
+- `/dp:use-dp je veux initialiser un datapack 1.21.5 namespace demo` -> recommande `/dp:init ...`
+
 Prompts MCP secondaires exposés côté serveur : `mcp-dp-*` (listables via `/mcp desc`).
+
+## 🤖 Mode Agentique v2 (HITL)
+
+- Flux standard: idee -> plan propose -> GO humain -> execution auto -> gate assets -> gate livraison.
+- 3 gates humains obligatoires:
+1. validation du plan (GO),
+2. confirmation assets externes,
+3. validation finale livraison.
+- Memoire persistante:
+  - `.gemini-project.json` pour l'etat technique.
+  - `.gemini-mission.json` + `.gemini-mission.md` pour la mission en cours (phase, statut, backlog, next_action).
+
+## 🔧 Dépannage MCP
+
+Si `/mcp list` affiche `datapack-tools ... Disconnected` :
+
+1. Vérifie que l'extension est valide : `gemini extensions validate /chemin/vers/gemini-datapack-architect`
+2. Rebuild le serveur : `npm run build`
+3. Lance Gemini depuis un dossier **trusté** (voir `~/.gemini/trustedFolders.json`) puis relance `/mcp list`
+
+Le serveur MCP est exécuté depuis le dossier extension mais opère sur le workspace courant via `MCP_PROJECT_ROOT=${workspacePath}`.
 
 ## 👨‍💼 Architecture
 

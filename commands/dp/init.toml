@@ -1,16 +1,18 @@
-description = "Initialize workspace from BONE:MSD template. Usage: /dp:init <version>"
+description = "Initialize versioned datapack project. Usage: /dp:init version=<x.y.z> namespace=<id> [profile=minimal|worldgen|tests|full]"
 prompt = """
 Run datapack initialization.
 
 Input: {{args}}
 
 Requirements:
-- A version string is required.
-- If missing, return exactly: ERROR: missing required argument <version>
+- Required keys: version, namespace.
+- Optional key: profile (minimal|worldgen|tests|full), default minimal.
+- If missing version, return exactly: ERROR: missing required argument <version>
+- If missing namespace, return exactly: ERROR: missing required argument <namespace>
 
 Execution:
-- Call MCP tool fs_workspace_init with JSON args:
-  {"version":"<version>"}
+- Call MCP tool fs_project_init with JSON args:
+  {"version":"<version>","namespace":"<namespace>","profile":"<profile_or_minimal>"}
 
-Then summarize result and next setup step (/dp:deps, /dp:ingest).
+Then summarize result and next setup step (/dp:install-bone, /dp:install-bookshelf, /dp:deps).
 """

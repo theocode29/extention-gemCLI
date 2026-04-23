@@ -1,13 +1,16 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import fs from "fs-extra";
 import path from "path";
 import { fileURLToPath } from "url";
 import { BONESemanticLinter } from "./BONESemanticLinter.js";
 import { BookshelfEngine } from "./BookshelfEngine.js";
 import { BONEEngine } from "./BONEEngine.js";
+import { DatapackInitEngine } from "./DatapackInitEngine.js";
 import { ProjectStateManager } from "./ProjectStateManager.js";
+import { MissionStateManager } from "./MissionStateManager.js";
 import { DocSearchEngine } from "./DocSearchEngine.js";
 import { SpyglassRunner } from "./SpyglassRunner.js";
 import { CircuitBreaker } from "./CircuitBreaker.js";
@@ -15,22 +18,113 @@ import { spawn } from "child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = process.env.MCP_PROJECT_ROOT || process.cwd();
+const ExecutionPhaseSchema = z.enum([
+    "phase0_audit",
+    "phase1_cadrage",
+    "phase2_plan",
+    "phase3_execution",
+    "phase4_validation",
+    "phase5_livraison",
+]);
+const MissionStatusSchema = z.enum([
+    "draft",
+    "awaiting_go",
+    "in_progress",
+    "waiting_human",
+    "blocked",
+    "completed",
+    "conditional_delivery",
+]);
+const MissionPlanCreateSchema = z.object({
+    objective: z.string().min(1),
+    assumptions: z.array(z.string()).optional(),
+    decisions: z.array(z.string()).optional(),
+    backlog: z
+        .array(z.object({
+        id: z.string().optional(),
+        title: z.string().min(1),
+        done: z.boolean().optional(),
+    }))
+        .optional(),
+    next_action: z.string().optional(),
+});
+const MissionPlanUpdateSchema = z.object({
+    objective: z.string().optional(),
+    assumptions: z.array(z.string()).optional(),
+    decisions: z.array(z.string()).optional(),
+    backlog: z
+        .array(z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        done: z.boolean().optional(),
+    }))
+        .optional(),
+    blockers: z.array(z.string()).optional(),
+    next_action: z.string().optional(),
+    status: MissionStatusSchema.optional(),
+    requires_human: z.boolean().optional(),
+    gate: z.enum(["planApproved", "assetsReady", "finalApproved"]).optional(),
+    gate_value: z.boolean().optional(),
+});
+const PhaseAdvanceSchema = z.object({
+    phase: ExecutionPhaseSchema,
+    status: MissionStatusSchema.optional(),
+    next_action: z.string().optional(),
+    requires_human: z.boolean().optional(),
+});
+const CheckpointGetSchema = z.object({
+    key: z.string().min(1),
+});
+const CheckpointSetSchema = z.object({
+    key: z.string().min(1),
+    value: z.string(),
+});
+const MissionReadWriteSchema = z.object({
+    objective: z.string().optional(),
+    assumptions: z.array(z.string()).optional(),
+    decisions: z.array(z.string()).optional(),
+    backlog: z
+        .array(z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        done: z.boolean().optional(),
+    }))
+        .optional(),
+    blockers: z.array(z.string()).optional(),
+    next_action: z.string().optional(),
+    status: MissionStatusSchema.optional(),
+    requires_human: z.boolean().optional(),
+    gate: z.enum(["planApproved", "assetsReady", "finalApproved"]).optional(),
+    gate_value: z.boolean().optional(),
+});
 const promptRegistry = [
     {
         name: "mcp-dp-init",
-        description: "Initialize a datapack workspace from BONE:MSD template.",
+        description: "Initialize a version-aware datapack workspace.",
         arguments: [
             {
                 name: "version",
-                description: "Minecraft version hint (informational for project context).",
+                description: "Target Minecraft Java version (example: 1.21.5).",
                 required: true,
             },
+            {
+                name: "namespace",
+                description: "Namespace for the datapack (lowercase, digits, _, ., -).",
+                required: true,
+            },
+            {
+                name: "profile",
+                description: "Optional profile: minimal|worldgen|tests|full (default minimal).",
+                required: false,
+            },
         ],
-        build: ({ version }) => [
-            "Initialize the datapack workspace.",
+        build: ({ version, namespace, profile }) => [
+            "Initialize the datapack workspace with version-aware structure.",
             `Requested target version: ${version}`,
-            "Call tool fs_workspace_init with:",
-            `{"version":"${version}"}`,
+            `Requested namespace: ${namespace}`,
+            `Requested profile: ${profile && profile.length > 0 ? profile : "minimal"}`,
+            "Call tool fs_project_init with:",
+            `{"version":"${version}","namespace":"${namespace}","profile":"${profile && profile.length > 0 ? profile : "minimal"}"}`,
             "Then summarize the initialization result and next setup actions.",
         ].join("\n"),
     },
@@ -262,8 +356,10 @@ const promptRegistry = [
 ];
 const server = new Server({ name: "datapack-tools", version: "0.1.0" }, { capabilities: { tools: {}, prompts: {} } });
 const stateManager = new ProjectStateManager(rootDir);
+const missionManager = new MissionStateManager(rootDir);
 const bookshelfEngine = new BookshelfEngine(rootDir);
 const boneEngine = new BONEEngine(rootDir);
+const datapackInitEngine = new DatapackInitEngine(rootDir);
 const boneSemanticLinter = new BONESemanticLinter(rootDir);
 const searchEngine = new DocSearchEngine(rootDir);
 const spyglassRunner = new SpyglassRunner(rootDir);
@@ -287,9 +383,172 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             { name: "search_docs", description: "Recherche RAG Minecraft.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
             { name: "run_headless_test", description: "Validation bs.load:status ou Gametests.", inputSchema: { type: "object", properties: { type: { type: "string", enum: ["gametest", "bookshelf_status"] } } } },
             { name: "run_spyglass_cli", description: "Validation syntaxique stricte (Spyglass).", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
-            { name: "fs_workspace_init", description: "Initialise un nouveau projet de datapack avec le template BONE:MSD.", inputSchema: { type: "object", properties: { version: { type: "string" } }, required: ["version"] } },
+            {
+                name: "fs_project_init",
+                description: "Initialise un nouveau projet de datapack versionné (sans BONE/Bookshelf).",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        version: { type: "string" },
+                        namespace: { type: "string" },
+                        profile: { type: "string", enum: ["minimal", "worldgen", "tests", "full"] }
+                    },
+                    required: ["version", "namespace"]
+                }
+            },
+            {
+                name: "fs_workspace_init",
+                description: "[DEPRECATED] Alias de compatibilité vers fs_project_init.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        version: { type: "string" },
+                        namespace: { type: "string" },
+                        profile: { type: "string", enum: ["minimal", "worldgen", "tests", "full"] }
+                    },
+                    required: ["version", "namespace"]
+                }
+            },
             { name: "fs_sync_all", description: "Synchronisation complète de l'état du projet.", inputSchema: { type: "object" } },
-            { name: "reset_circuit_breaker", description: "Reset global du disjoncteur.", inputSchema: { type: "object" } }
+            { name: "reset_circuit_breaker", description: "Reset global du disjoncteur.", inputSchema: { type: "object" } },
+            {
+                name: "agent_plan_create",
+                description: "Crée un plan missionnel et active le gate GO humain.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        objective: { type: "string" },
+                        assumptions: { type: "array", items: { type: "string" } },
+                        decisions: { type: "array", items: { type: "string" } },
+                        backlog: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    id: { type: "string" },
+                                    title: { type: "string" },
+                                    done: { type: "boolean" }
+                                },
+                                required: ["title"]
+                            }
+                        },
+                        next_action: { type: "string" }
+                    },
+                    required: ["objective"]
+                }
+            },
+            {
+                name: "agent_plan_update",
+                description: "Met à jour plan, backlog, statut, blockers, gates et next_action.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        objective: { type: "string" },
+                        assumptions: { type: "array", items: { type: "string" } },
+                        decisions: { type: "array", items: { type: "string" } },
+                        backlog: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    id: { type: "string" },
+                                    title: { type: "string" },
+                                    done: { type: "boolean" }
+                                },
+                                required: ["id"]
+                            }
+                        },
+                        blockers: { type: "array", items: { type: "string" } },
+                        next_action: { type: "string" },
+                        status: {
+                            type: "string",
+                            enum: ["draft", "awaiting_go", "in_progress", "waiting_human", "blocked", "completed", "conditional_delivery"]
+                        },
+                        requires_human: { type: "boolean" },
+                        gate: { type: "string", enum: ["planApproved", "assetsReady", "finalApproved"] },
+                        gate_value: { type: "boolean" }
+                    }
+                }
+            },
+            {
+                name: "agent_phase_advance",
+                description: "Fait avancer la phase d'orchestration de la mission.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        phase: {
+                            type: "string",
+                            enum: ["phase0_audit", "phase1_cadrage", "phase2_plan", "phase3_execution", "phase4_validation", "phase5_livraison"]
+                        },
+                        status: {
+                            type: "string",
+                            enum: ["draft", "awaiting_go", "in_progress", "waiting_human", "blocked", "completed", "conditional_delivery"]
+                        },
+                        next_action: { type: "string" },
+                        requires_human: { type: "boolean" }
+                    },
+                    required: ["phase"]
+                }
+            },
+            {
+                name: "agent_checkpoint_get",
+                description: "Lit un checkpoint missionnel par clé.",
+                inputSchema: {
+                    type: "object",
+                    properties: { key: { type: "string" } },
+                    required: ["key"]
+                }
+            },
+            {
+                name: "agent_checkpoint_set",
+                description: "Écrit un checkpoint missionnel par clé.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        key: { type: "string" },
+                        value: { type: "string" }
+                    },
+                    required: ["key", "value"]
+                }
+            },
+            {
+                name: "agent_mission_read",
+                description: "Lit la mémoire missionnelle (JSON + markdown).",
+                inputSchema: { type: "object" }
+            },
+            {
+                name: "agent_mission_write",
+                description: "Met à jour la mémoire missionnelle de haut niveau.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        objective: { type: "string" },
+                        assumptions: { type: "array", items: { type: "string" } },
+                        decisions: { type: "array", items: { type: "string" } },
+                        backlog: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    id: { type: "string" },
+                                    title: { type: "string" },
+                                    done: { type: "boolean" }
+                                },
+                                required: ["id"]
+                            }
+                        },
+                        blockers: { type: "array", items: { type: "string" } },
+                        next_action: { type: "string" },
+                        status: {
+                            type: "string",
+                            enum: ["draft", "awaiting_go", "in_progress", "waiting_human", "blocked", "completed", "conditional_delivery"]
+                        },
+                        requires_human: { type: "boolean" },
+                        gate: { type: "string", enum: ["planApproved", "assetsReady", "finalApproved"] },
+                        gate_value: { type: "boolean" }
+                    }
+                }
+            }
         ],
     };
 });
@@ -434,10 +693,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 const result = await spyglassRunner.run(args?.path);
                 return { isError: result.status !== "PASS", content: [{ type: "text", text: result.message + (result.errors.length > 0 ? "\n" + JSON.stringify(result.errors, null, 2) : "") }] };
             }
-            case "fs_workspace_init": {
-                const initRes = await boneEngine.initTemplate();
+            case "fs_project_init": {
+                const result = await datapackInitEngine.initProject({
+                    version: args?.version,
+                    namespace: args?.namespace,
+                    profile: args?.profile,
+                });
                 await stateManager.syncAll();
-                return { content: [{ type: "text", text: initRes }] };
+                const summary = [
+                    result.message,
+                    `Version résolue: ${result.resolvedVersion.normalizedVersion}`,
+                    `Pack format: ${result.resolvedVersion.packFormat}`,
+                    `Profil: ${result.profile}`,
+                    `Namespace: ${result.namespace}`,
+                    `Fichiers/dossiers créés: ${result.createdPaths.length}`,
+                    result.warnings.length > 0 ? `Warnings: ${result.warnings.join(" | ")}` : "Warnings: none",
+                ].join("\n");
+                return {
+                    content: [{ type: "text", text: summary }],
+                    structuredContent: result,
+                };
+            }
+            case "fs_workspace_init": {
+                const result = await datapackInitEngine.initProject({
+                    version: args?.version,
+                    namespace: args?.namespace,
+                    profile: args?.profile,
+                });
+                await stateManager.syncAll();
+                const summary = [
+                    "[DEPRECATED] fs_workspace_init redirige vers fs_project_init.",
+                    result.message,
+                    `Version résolue: ${result.resolvedVersion.normalizedVersion}`,
+                    `Pack format: ${result.resolvedVersion.packFormat}`,
+                    `Profil: ${result.profile}`,
+                    `Namespace: ${result.namespace}`,
+                    `Fichiers/dossiers créés: ${result.createdPaths.length}`,
+                    result.warnings.length > 0 ? `Warnings: ${result.warnings.join(" | ")}` : "Warnings: none",
+                ].join("\n");
+                return {
+                    content: [{ type: "text", text: summary }],
+                    structuredContent: {
+                        deprecated: true,
+                        replacement: "fs_project_init",
+                        ...result,
+                    },
+                };
             }
             case "fs_sync_all": {
                 await stateManager.syncAll();
@@ -446,6 +747,96 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "reset_circuit_breaker": {
                 circuitBreaker.resetAll();
                 return { content: [{ type: "text", text: "Disjoncteur réinitialisé pour tous les fichiers." }] };
+            }
+            case "agent_plan_create": {
+                const parsed = MissionPlanCreateSchema.parse(args ?? {});
+                const mission = await missionManager.createOrReplacePlan({
+                    objective: parsed.objective,
+                    assumptions: parsed.assumptions,
+                    decisions: parsed.decisions,
+                    backlog: parsed.backlog,
+                    nextAction: parsed.next_action,
+                });
+                return {
+                    content: [{ type: "text", text: "Plan missionnel créé. Gate GO activé." }],
+                    structuredContent: mission,
+                };
+            }
+            case "agent_plan_update": {
+                const parsed = MissionPlanUpdateSchema.parse(args ?? {});
+                let mission = await missionManager.updateMission({
+                    objective: parsed.objective,
+                    assumptions: parsed.assumptions,
+                    decisions: parsed.decisions,
+                    backlog: parsed.backlog,
+                    blockers: parsed.blockers,
+                    nextAction: parsed.next_action,
+                    status: parsed.status,
+                    requiresHuman: parsed.requires_human,
+                });
+                if (parsed.gate && parsed.gate_value !== undefined) {
+                    mission = await missionManager.setGate(parsed.gate, parsed.gate_value);
+                }
+                return {
+                    content: [{ type: "text", text: "Plan missionnel mis à jour." }],
+                    structuredContent: mission,
+                };
+            }
+            case "agent_phase_advance": {
+                const parsed = PhaseAdvanceSchema.parse(args ?? {});
+                const mission = await missionManager.advancePhase({
+                    phase: parsed.phase,
+                    status: parsed.status,
+                    nextAction: parsed.next_action,
+                    requiresHuman: parsed.requires_human,
+                });
+                return {
+                    content: [{ type: "text", text: `Phase avancée vers ${mission.phase}.` }],
+                    structuredContent: mission,
+                };
+            }
+            case "agent_checkpoint_get": {
+                const parsed = CheckpointGetSchema.parse(args ?? {});
+                const checkpoint = await missionManager.getCheckpoint(parsed.key);
+                return {
+                    content: [{ type: "text", text: checkpoint ? JSON.stringify(checkpoint, null, 2) : "Checkpoint introuvable." }],
+                    structuredContent: { key: parsed.key, checkpoint },
+                };
+            }
+            case "agent_checkpoint_set": {
+                const parsed = CheckpointSetSchema.parse(args ?? {});
+                const mission = await missionManager.setCheckpoint(parsed.key, parsed.value);
+                return {
+                    content: [{ type: "text", text: `Checkpoint '${parsed.key}' enregistré.` }],
+                    structuredContent: mission,
+                };
+            }
+            case "agent_mission_read": {
+                const mission = await missionManager.loadMission();
+                return {
+                    content: [{ type: "text", text: JSON.stringify(mission, null, 2) }],
+                    structuredContent: mission,
+                };
+            }
+            case "agent_mission_write": {
+                const parsed = MissionReadWriteSchema.parse(args ?? {});
+                let mission = await missionManager.updateMission({
+                    objective: parsed.objective,
+                    assumptions: parsed.assumptions,
+                    decisions: parsed.decisions,
+                    backlog: parsed.backlog,
+                    blockers: parsed.blockers,
+                    nextAction: parsed.next_action,
+                    status: parsed.status,
+                    requiresHuman: parsed.requires_human,
+                });
+                if (parsed.gate && parsed.gate_value !== undefined) {
+                    mission = await missionManager.setGate(parsed.gate, parsed.gate_value);
+                }
+                return {
+                    content: [{ type: "text", text: "Mémoire missionnelle mise à jour." }],
+                    structuredContent: mission,
+                };
             }
             default: throw new Error(`Outil inconnu : ${name}`);
         }

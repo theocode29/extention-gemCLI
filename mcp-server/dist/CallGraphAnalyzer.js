@@ -16,15 +16,18 @@ export class CallGraphAnalyzer {
     }
     async parseFunction(filePath) {
         const content = await fs.readFile(filePath, 'utf-8');
-        // Extract function ID from path: .../namespace/functions/path/to/func.mcfunction -> namespace:path/to/func
+        // Extract function ID from path:
+        // .../namespace/function|functions/path/to/func.mcfunction -> namespace:path/to/func
         const relativePath = path.relative(this.dataDir, filePath).replace(/\\/g, '/');
         const parts = relativePath.split('/');
+        const functionIndex = parts.indexOf('function');
         const functionsIndex = parts.indexOf('functions');
-        if (functionsIndex === -1 || functionsIndex === 0) {
+        const registryIndex = functionIndex >= 0 ? functionIndex : functionsIndex;
+        if (registryIndex === -1 || registryIndex === 0) {
             return; // Not a standard function path
         }
-        const namespace = parts[functionsIndex - 1];
-        const functionPath = parts.slice(functionsIndex + 1).join('/').replace('.mcfunction', '');
+        const namespace = parts[registryIndex - 1];
+        const functionPath = parts.slice(registryIndex + 1).join('/').replace('.mcfunction', '');
         const id = `${namespace}:${functionPath}`;
         const node = {
             id,

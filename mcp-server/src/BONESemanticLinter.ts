@@ -89,7 +89,7 @@ export class BONESemanticLinter {
 
     if (filePath.endsWith(".mcfunction")) {
       const content = await fs.readFile(filePath, "utf-8");
-      const isFunctionsDir = relativePath.includes("/functions/");
+      const isFunctionsDir = relativePath.includes("/functions/") || relativePath.includes("/function/");
       const isExcludedFile = filePath.endsWith("load.mcfunction") || filePath.endsWith("init.mcfunction");
 
       const isImmutableLibrary = relativePath.includes("data/bs.") || relativePath.includes("data/minecraft/") || relativePath.includes("data/bone_msd/");
@@ -130,7 +130,7 @@ export class BONESemanticLinter {
       }
     }
 
-    if (filePath.endsWith("give.json") && relativePath.includes("loot_table")) {
+    if (filePath.endsWith("give.json") && (relativePath.includes("loot_table") || relativePath.includes("loot_tables"))) {
        const content = await fs.readFile(filePath, "utf-8");
        if (!content.includes("minecraft:barrier")) {
           errors.push(`[LOI 1] Tout bloc custom BONE:MSD doit utiliser 'minecraft:barrier' comme item de base (${relativePath}).`);

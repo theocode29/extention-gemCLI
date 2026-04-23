@@ -7,8 +7,11 @@
   "mcpServers": {
     "datapack-tools": {
       "command": "node",
-      "args": ["mcp-server/dist/index.js"],
-      "env": {}
+      "args": ["${extensionPath}${/}mcp-server${/}dist${/}index.js"],
+      "cwd": "${extensionPath}",
+      "env": {
+        "MCP_PROJECT_ROOT": "${workspacePath}"
+      }
     }
   },
   "hooks": {
