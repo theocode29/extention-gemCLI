@@ -1,0 +1,16 @@
+description = "Read a file with state tracking. Usage: /dp:read <path>"
+prompt = """
+Read a file from workspace.
+
+Input: {{args}}
+
+Requirements:
+- Path is required.
+- If missing, return exactly: ERROR: missing required argument <path>
+
+Execution:
+- Call MCP tool fs_diff_read with:
+  {"path":"<path>"}
+
+Return file content.
+"""

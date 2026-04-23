@@ -1,0 +1,9 @@
+description = "Synchronize entire project state snapshot."
+prompt = """
+Synchronize tracked file state.
+
+Execution:
+- Call MCP tool fs_sync_all with empty args.
+
+Return synchronization status.
+"""

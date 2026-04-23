@@ -2,6 +2,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs-extra";
@@ -20,9 +22,285 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = process.env.MCP_PROJECT_ROOT || process.cwd();
 
+type PromptArg = {
+  name: string;
+  description: string;
+  required?: boolean;
+};
+
+type PromptDef = {
+  name: string;
+  description: string;
+  arguments?: PromptArg[];
+  build: (args: Record<string, string>) => string;
+};
+
+const promptRegistry: PromptDef[] = [
+  {
+    name: "mcp-dp-init",
+    description: "Initialize a datapack workspace from BONE:MSD template.",
+    arguments: [
+      {
+        name: "version",
+        description: "Minecraft version hint (informational for project context).",
+        required: true,
+      },
+    ],
+    build: ({ version }) =>
+      [
+        "Initialize the datapack workspace.",
+        `Requested target version: ${version}`,
+        "Call tool fs_workspace_init with:",
+        `{"version":"${version}"}`,
+        "Then summarize the initialization result and next setup actions.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-ingest",
+    description: "Refresh BONE + Bookshelf knowledge index.",
+    build: () =>
+      [
+        "Refresh the internal RAG/index knowledge.",
+        "Call tool bone_ingest_template with empty arguments.",
+        "Return a concise summary of what was indexed.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-lint",
+    description: "Run BONE semantic lint on a file or directory.",
+    arguments: [
+      {
+        name: "path",
+        description: "Relative path to file or folder to lint.",
+        required: true,
+      },
+    ],
+    build: ({ path: targetPath }) =>
+      [
+        `Run semantic lint for path: ${targetPath}`,
+        "Call tool bone_semantic_lint with:",
+        `{"path":"${targetPath}"}`,
+        "If lint fails, report actionable fixes.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-install-bookshelf",
+    description: "Install one Bookshelf module and dependencies.",
+    arguments: [
+      {
+        name: "module_name",
+        description: "Bookshelf module name, for example math or random.",
+        required: true,
+      },
+    ],
+    build: ({ module_name }) =>
+      [
+        `Install Bookshelf module: ${module_name}`,
+        "Call tool fs_install_bookshelf_module with:",
+        `{"module_name":"${module_name}"}`,
+        "After install, recommend running mcp-dp-test with type=bookshelf_status.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-install-bone",
+    description: "Install BONE:MSD core dependency.",
+    build: () =>
+      [
+        "Install BONE:MSD core.",
+        "Call tool fs_install_bone_msd with empty arguments.",
+        "Return completion status.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-deps",
+    description: "Show installed dependency status.",
+    build: () =>
+      [
+        "Inspect installed libraries.",
+        "Call tool fs_verify_dependencies with empty arguments.",
+        "Present the returned JSON as a small status table.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-mcdoc",
+    description: "Inject BONE/Bookshelf MCDoc schemas.",
+    build: () =>
+      [
+        "Inject MCDoc schemas into .spyglass/mcdoc.",
+        "Call tool inject_bone_mcdoc with empty arguments.",
+        "Return outcome and next verification step.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-assets-update",
+    description: "Update ASSETS_TODO from JSON item list.",
+    arguments: [
+      {
+        name: "items_json",
+        description: "JSON array: [{\"name\":\"x\",\"type\":\"block|item\",\"namespace\":\"ns\"}]",
+        required: true,
+      },
+    ],
+    build: ({ items_json }) =>
+      [
+        "Update ASSETS_TODO using the provided JSON array.",
+        `Input JSON: ${items_json}`,
+        "Parse JSON. If invalid JSON, return a clear parse error and do not call tools.",
+        "If valid, call update_assets_todo with:",
+        `{"items":<parsed-json-array>}`,
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-assets-verify",
+    description: "Verify assets referenced in ASSETS_TODO.",
+    build: () =>
+      [
+        "Verify asset files listed in ASSETS_TODO.",
+        "Call tool fs_verify_assets with empty arguments.",
+        "If missing assets exist, provide a concise missing list.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-read",
+    description: "Read file with project-state tracking.",
+    arguments: [
+      {
+        name: "path",
+        description: "Relative file path.",
+        required: true,
+      },
+    ],
+    build: ({ path: targetPath }) =>
+      [
+        `Read file: ${targetPath}`,
+        "Call tool fs_diff_read with:",
+        `{"path":"${targetPath}"}`,
+        "Return the file content without additional transformations.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-write",
+    description: "Write file from JSON payload with state tracking.",
+    arguments: [
+      {
+        name: "payload_json",
+        description: "JSON object: {\"path\":\"...\",\"content\":\"...\"}",
+        required: true,
+      },
+    ],
+    build: ({ payload_json }) =>
+      [
+        "Write file from JSON payload.",
+        `Payload: ${payload_json}`,
+        "Parse payload JSON. If invalid JSON or missing path/content keys, return an explicit error and do not call tools.",
+        "If valid, call fs_diff_write with the parsed object.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-mods",
+    description: "List manual modifications tracked by state manager.",
+    build: () =>
+      [
+        "Fetch manual modifications relative to tracked state.",
+        "Call tool get_manual_modifications with empty arguments.",
+        "Return concise structured summary.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-test",
+    description: "Run dynamic test (gametest or bookshelf_status).",
+    arguments: [
+      {
+        name: "type",
+        description: "One of: gametest, bookshelf_status.",
+        required: false,
+      },
+    ],
+    build: ({ type }) => {
+      const resolvedType = type && type.length > 0 ? type : "gametest";
+      return [
+        `Run dynamic test with type: ${resolvedType}`,
+        "Allowed values: gametest, bookshelf_status.",
+        "If value is outside allowed set, return an explicit validation error and stop.",
+        "If valid, call run_headless_test with:",
+        `{"type":"${resolvedType}"}`,
+      ].join("\n");
+    },
+  },
+  {
+    name: "mcp-dp-search",
+    description: "Search local Minecraft/BONE docs index.",
+    arguments: [
+      {
+        name: "query",
+        description: "Free-text search query.",
+        required: true,
+      },
+    ],
+    build: ({ query }) =>
+      [
+        `Search docs with query: ${query}`,
+        "Call tool search_docs with:",
+        `{"query":"${query}"}`,
+        "Return top findings in concise bullets.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-spyglass",
+    description: "Run Spyglass syntax validation.",
+    arguments: [
+      {
+        name: "path",
+        description: "Relative path to validate.",
+        required: true,
+      },
+    ],
+    build: ({ path: targetPath }) =>
+      [
+        `Run Spyglass validation on path: ${targetPath}`,
+        "Call tool run_spyglass_cli with:",
+        `{"path":"${targetPath}"}`,
+        "Report pass/fail and detailed errors when present.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-sync",
+    description: "Synchronize whole project state snapshot.",
+    build: () =>
+      [
+        "Synchronize project file-state baseline.",
+        "Call tool fs_sync_all with empty arguments.",
+        "Return sync confirmation.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-breaker-reset",
+    description: "Reset lint circuit-breaker counters.",
+    build: () =>
+      [
+        "Reset circuit breaker attempts for all files.",
+        "Call tool reset_circuit_breaker with empty arguments.",
+        "Return reset confirmation.",
+      ].join("\n"),
+  },
+  {
+    name: "mcp-dp-doctor",
+    description: "Run multi-check diagnostic report for project health.",
+    build: () =>
+      [
+        "Run diagnostic workflow.",
+        "1) Call fs_verify_dependencies.",
+        "2) Call get_manual_modifications.",
+        "3) Call fs_verify_assets.",
+        "4) Call fs_sync_all.",
+        "Produce a final report with sections: Dependencies, Manual Modifications, Assets, Sync Status.",
+      ].join("\n"),
+  },
+];
+
 const server = new Server(
   { name: "datapack-tools", version: "0.1.0" },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: {}, prompts: {} } }
 );
 
 const stateManager = new ProjectStateManager(rootDir);
@@ -56,6 +334,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       { name: "fs_workspace_init", description: "Initialise un nouveau projet de datapack avec le template BONE:MSD.", inputSchema: { type: "object", properties: { version: { type: "string" } }, required: ["version"] } },
       { name: "fs_sync_all", description: "Synchronisation complète de l'état du projet.", inputSchema: { type: "object" } },
       { name: "reset_circuit_breaker", description: "Reset global du disjoncteur.", inputSchema: { type: "object" } }
+    ],
+  };
+});
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  return {
+    prompts: promptRegistry.map((prompt) => ({
+      name: prompt.name,
+      description: prompt.description,
+      arguments: prompt.arguments,
+    })),
+  };
+});
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: promptArgs } = request.params;
+  const prompt = promptRegistry.find((candidate) => candidate.name === name);
+
+  if (!prompt) {
+    throw new Error(`Prompt inconnu : ${name}`);
+  }
+
+  const args = (promptArgs ?? {}) as Record<string, string>;
+  const missingRequired = (prompt.arguments ?? [])
+    .filter((arg) => arg.required)
+    .map((arg) => arg.name)
+    .filter((key) => !args[key] || args[key].trim().length === 0);
+
+  if (missingRequired.length > 0) {
+    throw new Error(
+      `Argument(s) manquant(s) pour ${name}: ${missingRequired.join(", ")}`
+    );
+  }
+
+  return {
+    description: prompt.description,
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: prompt.build(args),
+        },
+      },
     ],
   };
 });
@@ -132,12 +454,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const type = args?.type as string || "gametest";
         const jarPath = path.join(rootDir, "headlessmc.jar");
         if (!(await fs.pathExists(jarPath))) {
-            return { 
-                isError: true, 
-                content: [{ 
-                    type: "text", 
-                    text: "❌ Erreur : 'headlessmc.jar' est introuvable à la racine.\nAction requise : Téléchargez HeadlessMC (https://github.com/HeadlessMC/HeadlessMC) et placez-le dans le dossier du projet pour activer les tests dynamiques." 
-                }] 
+            return {
+                isError: true,
+                content: [{
+                    type: "text",
+                    text: "❌ Erreur : 'headlessmc.jar' est introuvable à la racine.\nAction requise : Téléchargez HeadlessMC (https://github.com/HeadlessMC/HeadlessMC) et placez-le dans le dossier du projet pour activer les tests dynamiques."
+                }]
             };
         }
         return new Promise((resolve) => {

@@ -19,7 +19,7 @@ Vous êtes l'unique point d'entrée pour l'utilisateur. Votre mission est de mai
 2. **Recherche de Contexte** : 
    - Références primaires : `BONE_MSD_INTERNAL.md` et `BOOKSHELF_INTERNAL.md`.
    - Utilisez `search_docs` pour les schémas MCDoc et les modules de calcul.
-3. **Cognition Multi-Core** : Si le projet manque de connaissances, appelez `bone_ingest_template` ou `bookshelf_ingest`. Cela mettra à jour l'index RAG et générera les schémas de validation `.mcdoc`.
+3. **Cognition Multi-Core** : Si le projet manque de connaissances, appelez `bone_ingest_template`. Cette opération met à jour l'index RAG BONE + Bookshelf et régénère la documentation interne.
 4. **Planification Stratégique** : Établissez un plan d'action par étapes.
 5. **Gestion des Dépendances** : Si votre plan nécessite un module Bookshelf (ex: `bs.math`) non présent sur le disque, utilisez `fs_install_bookshelf_module(module_name)`.
 6. **Validation d'Installation** : Après avoir installé un module, appelez TOUJOURS `run_headless_test(type="bookshelf_status")`. Si des dépendances manquantes sont détectées dans les logs, installez-les immédiatement.

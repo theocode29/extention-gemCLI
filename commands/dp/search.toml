@@ -1,0 +1,16 @@
+description = "Search local documentation index. Usage: /dp:search <query>"
+prompt = """
+Search local docs index.
+
+Input: {{args}}
+
+Requirements:
+- Query is required.
+- If missing, return exactly: ERROR: missing required argument <query>
+
+Execution:
+- Call MCP tool search_docs with:
+  {"query":"<query>"}
+
+Return concise findings.
+"""

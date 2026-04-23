@@ -1,0 +1,16 @@
+description = "Install a Bookshelf module and dependencies. Usage: /dp:install-bookshelf <module_name>"
+prompt = """
+Install one Bookshelf module.
+
+Input: {{args}}
+
+Requirements:
+- Module name is required.
+- If missing, return exactly: ERROR: missing required argument <module_name>
+
+Execution:
+- Call MCP tool fs_install_bookshelf_module with:
+  {"module_name":"<module_name>"}
+
+After installation, recommend /dp:test bookshelf_status.
+"""

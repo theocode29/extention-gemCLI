@@ -1,0 +1,9 @@
+description = "Reset lint circuit breaker counters."
+prompt = """
+Reset circuit breaker for lint operations.
+
+Execution:
+- Call MCP tool reset_circuit_breaker with empty args.
+
+Return reset status.
+"""

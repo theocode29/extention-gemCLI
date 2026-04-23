@@ -1,0 +1,9 @@
+description = "Install BONE:MSD core dependency."
+prompt = """
+Install BONE:MSD core.
+
+Execution:
+- Call MCP tool fs_install_bone_msd with empty args.
+
+Return installation status.
+"""

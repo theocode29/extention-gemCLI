@@ -1,0 +1,9 @@
+description = "List manual modifications tracked by project state."
+prompt = """
+Inspect manual modifications.
+
+Execution:
+- Call MCP tool get_manual_modifications with empty args.
+
+Return concise structured summary.
+"""

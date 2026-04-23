@@ -1,0 +1,9 @@
+description = "Refresh BONE + Bookshelf knowledge index."
+prompt = """
+Refresh internal knowledge indexes.
+
+Execution:
+- Call MCP tool bone_ingest_template with empty args.
+
+Return concise summary of what was refreshed.
+"""

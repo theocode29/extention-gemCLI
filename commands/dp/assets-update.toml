@@ -1,0 +1,19 @@
+description = "Update ASSETS_TODO from JSON array. Usage: /dp:assets-update <items_json>"
+prompt = """
+Update ASSETS_TODO.md with JSON input.
+
+Input: {{args}}
+
+Requirements:
+- Input must be a JSON array of objects with keys: name, type, namespace.
+- type must be either block or item.
+- If missing input, return exactly: ERROR: missing required argument <items_json>
+- If invalid JSON, return exactly: ERROR: invalid JSON for <items_json>
+
+Execution:
+- Parse input as JSON array.
+- Call MCP tool update_assets_todo with:
+  {"items": <parsed_array>}
+
+Return concise status.
+"""

@@ -1,0 +1,9 @@
+description = "Show installed dependency status (bookshelf, bone_msd)."
+prompt = """
+Inspect dependency status.
+
+Execution:
+- Call MCP tool fs_verify_dependencies with empty args.
+
+Return a compact status report from returned JSON.
+"""

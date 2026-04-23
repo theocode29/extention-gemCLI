@@ -145,6 +145,24 @@ ${readmeContent}
                 if (file === ".git") continue;
                 await fs.move(path.join(tmpDir, file), path.join(this.rootDir, file), { overwrite: true });
               }
+
+              // Le template upstream contient un sous-dossier "BONE-MSD Datapack".
+              // On remonte son contenu à la racine pour obtenir un workspace directement exploitable.
+              const rootPackMcmeta = path.join(this.rootDir, "pack.mcmeta");
+              const nestedDatapackDir = path.join(this.rootDir, "BONE-MSD Datapack");
+              const nestedPackMcmeta = path.join(nestedDatapackDir, "pack.mcmeta");
+              if (!(await fs.pathExists(rootPackMcmeta)) && (await fs.pathExists(nestedPackMcmeta))) {
+                const nestedEntries = await fs.readdir(nestedDatapackDir);
+                for (const entry of nestedEntries) {
+                  await fs.move(
+                    path.join(nestedDatapackDir, entry),
+                    path.join(this.rootDir, entry),
+                    { overwrite: true }
+                  );
+                }
+                await fs.remove(nestedDatapackDir);
+              }
+
               await fs.remove(tmpDir);
               resolve("Template BONE:MSD cloné et initialisé avec succès.");
             } catch (moveError: any) {

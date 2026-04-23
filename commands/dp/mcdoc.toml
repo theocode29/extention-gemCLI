@@ -1,0 +1,9 @@
+description = "Inject BONE and Bookshelf MCDoc schemas."
+prompt = """
+Inject schema files used by Spyglass.
+
+Execution:
+- Call MCP tool inject_bone_mcdoc with empty args.
+
+Return success/failure and location summary.
+"""

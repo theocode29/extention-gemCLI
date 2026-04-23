@@ -1,0 +1,16 @@
+description = "Initialize workspace from BONE:MSD template. Usage: /dp:init <version>"
+prompt = """
+Run datapack initialization.
+
+Input: {{args}}
+
+Requirements:
+- A version string is required.
+- If missing, return exactly: ERROR: missing required argument <version>
+
+Execution:
+- Call MCP tool fs_workspace_init with JSON args:
+  {"version":"<version>"}
+
+Then summarize result and next setup step (/dp:deps, /dp:ingest).
+"""
