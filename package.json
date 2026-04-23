@@ -1,0 +1,12 @@
+{
+  "name": "gemini-datapack-architect",
+  "version": "0.1.0",
+  "description": "Senior Minecraft Datapack Architect with local RAG and CI/CD validation.",
+  "scripts": {
+    "build": "cd mcp-server && npm run build",
+    "install-deps": "cd mcp-server && npm install",
+    "link": "gemini extensions link ."
+  },
+  "author": "Thor",
+  "license": "MIT"
+}

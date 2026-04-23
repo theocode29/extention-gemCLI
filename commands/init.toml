@@ -1,0 +1,10 @@
+[command]
+name = "dp-init"
+description = "Initialise un nouveau projet de datapack avec la structure standard."
+tool = "fs_workspace_init"
+
+[[arguments]]
+name = "version"
+type = "string"
+description = "La version de Minecraft (ex: 1.21)"
+required = true

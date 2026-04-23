@@ -1,0 +1,83 @@
+# BOOKSHELF INTERNAL KNOWLEDGE
+DO NOT EDIT MANUALLY.
+
+## Modules Detected
+* bs.bitwise
+* bs.block
+* bs.color
+* bs.dump
+* bs.environment
+* bs.generation
+* bs.health
+* bs.hitbox
+* bs.id
+* bs.interaction
+* bs.link
+* bs.log
+* bs.math
+* bs.move
+* bs.position
+* bs.random
+* bs.raycast
+* bs.schedule
+* bs.sidebar
+* bs.spline
+* bs.string
+* bs.time
+* bs.tree
+* bs.vector
+* bs.view
+* bs.xp
+
+## Core APIs (Truncated for brevity)
+* bs.bitwise:.___load__
+* bs.bitwise:.___unload__
+* bs.bitwise:._bit_count
+* bs.bitwise:._not
+* bs.bitwise:._or
+* bs.bitwise:._two_complement
+* bs.bitwise:._xor
+* bs.bitwise:__load__
+* bs.bitwise:__unload__
+* bs.bitwise:and/._and
+* bs.bitwise:and/._compute
+* bs.bitwise:and/and
+* bs.bitwise:and/compute
+* bs.bitwise:bit_count
+* bs.bitwise:bit_length/._bit_length
+* bs.bitwise:bit_length/._group_1
+* bs.bitwise:bit_length/._group_2
+* bs.bitwise:bit_length/._group_3
+* bs.bitwise:bit_length/._group_4
+* bs.bitwise:bit_length/bit_length
+* bs.bitwise:bit_length/group_1
+* bs.bitwise:bit_length/group_2
+* bs.bitwise:bit_length/group_3
+* bs.bitwise:bit_length/group_4
+* bs.bitwise:not
+* bs.bitwise:or
+* bs.bitwise:two_complement
+* bs.bitwise:xor
+* bs.block:.___load__
+* bs.block:.___unload__
+* bs.block:._is_touching_power
+* bs.block:._is_touching_strong_power
+* bs.block:._is_touching_weak_power
+* bs.block:__load__
+* bs.block:__unload__
+* bs.block:fill/._fill_block
+* bs.block:fill/._fill_type
+* bs.block:fill/fill_block
+* bs.block:fill/fill_type
+* bs.block:fill/type/._init
+* bs.block:fill/type/._x
+* bs.block:fill/type/._y
+* bs.block:fill/type/._z
+* bs.block:fill/type/init
+* bs.block:fill/type/mode/._destroy
+* bs.block:fill/type/mode/._filter
+* bs.block:fill/type/mode/._hollow
+* bs.block:fill/type/mode/._keep
+* bs.block:fill/type/mode/._outline
+* bs.block:fill/type/mode/._replace
+... and 1826 more.
