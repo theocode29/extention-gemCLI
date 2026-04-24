@@ -1,7 +1,0 @@
-._*
-.DS_Store
-node_modules/
-dist/
-.bone_ingest_tmp*
-.bs_ingest_tmp*
-*.zip
