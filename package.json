@@ -1,0 +1,27 @@
+{
+  "name": "extention-gemcli",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theocode29/extention-gemCLI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/theocode29/extention-gemCLI/issues"
+  },
+  "homepage": "https://github.com/theocode29/extention-gemCLI#readme",
+  "description": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@spyglassmc/mcdoc-cli": "^0.1.51",
+    "chokidar": "^5.0.0",
+    "commander": "^14.0.3",
+    "fs-extra": "^11.3.4"
+  }
+}
